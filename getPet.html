@@ -49,13 +49,14 @@
                         <el-button @click="addItem">新增物品</el-button>
                         <el-button @click="showTestDialog">測試</el-button>
                         <el-button type="primary" @click="showGetItemMessage">開獎</el-button>
+                        <el-button type="danger" @click="clearStorage">清除設定</el-button>
                     </template>
 
                     <!--   the main ui -->
                     <template>
                         <h1>機率設定</h1>
                         <!--     <el-input-number v-model="chanceInputStep"> </el-input-number> -->
-                        <el-table border stripe :header-align="center" :data="tableData" class="text-center"
+                        <el-table border stripe header-align="center" :data="tableData" class="text-center"
                             style="width: 100%">
                             </el-table-column>
                             <el-table-column label="物品名稱">
@@ -97,14 +98,14 @@
             </div>
 
             <!--  the test dialog -->
-            <el-dialog title="測試抽獎機率" :visible.sync="testDialogVisible" width="100%" center>
+            <el-dialog title="測試抽獎機率" :visible.sync="testDialogVisible" width="100%">
                 <div style="text-align:center;">
                     <span>要測試幾次呢？</span>
 
                     <el-input-number v-model="testTimes" controls-position="right">
                     </el-input-number>
                     <div class="testprogress">
-                        <el-progress type="circle" :percentage="testPercentage" :status="testPercentage >= 100 ? 'success' : ''"></el-progress>
+                        <el-progress type="circle" :percentage="testPercentage" :status="testPercentage >= 100 ? 'success' : undefined"></el-progress>
                     </div>
                     <pre v-if="runnningTest">{{ testMessage }}</pre>
                     <div v-if="testResult.length > 0 && runnningTest === false">
@@ -233,6 +234,13 @@
                 this.testPercentage = 0;
             },
             startTest() {
+                // 驗證總概率是否為100%
+                const totalChance = this.tableData.reduce((sum, item) => sum + item.p, 0);
+                if (Math.abs(totalChance - 100) > 0.01) {
+                    this.$message.error(`總概率必須為100%，當前為${totalChance}%`);
+                    return;
+                }
+                
                 // setup variables
                 this.runnningTest = true;
                 this.testResult = [];
@@ -243,34 +251,48 @@
                 });
 
                 var i = 0;
-                // run in next tick (after vue view updated)
-                this.$nextTick(() => {
-                    var interval = setInterval(() => {
-                        if (i === this.testTimes) {
-                            clearInterval(interval);
-                            this.runnningTest = false;
-                            // create test result
-                            Object.keys(chance).forEach((_, index) => {
-                                console.log('this.tableData[index]', this.tableData[index]);
-                                this.testResult.push({
-                                    name: _,
-                                    count: chance[_],
-                                    chance: Math.round((chance[_] / this.testTimes) * 100) + "%",
-                                    chanceBySetting: this.tableData[index].p + "%",
-                                    price: this.tableData[index].price,
-                                });
-                            });
-                        } else {
-                            // get the item, render testMessage update chance coutner
-                            const item = this.getItemByChange();
-                            chance[item.name]++;
-                            // this.testMessage = JSON.stringify(item, null, 4);
-                            this.testMessage = item;
-                            i++;
+                // 使用requestAnimationFrame代替setInterval提高性能
+                const testLoop = () => {
+                    if (i < this.testTimes) {
+                        // get the item and update counters
+                        const item = this.getItemByChange();
+                        chance[item.name]++;
+                        this.testMessage = `測試中: ${i+1}/${this.testTimes}`;
+                        i++;
+                        
+                        // update progress every 100 iterations for better performance
+                        if (i % 100 === 0) {
+                            this.testPercentage = parseInt((i / this.testTimes) * 100);
                         }
-                        // update the progress bar
-                        this.testPercentage = parseInt((i / this.testTimes) * 100);
-                    }, 1);
+                        
+                        requestAnimationFrame(testLoop);
+                    } else {
+                        // test completed
+                        this.runnningTest = false;
+                        this.testPercentage = 100;
+                        
+                        // create detailed test result
+                        Object.keys(chance).forEach((_, index) => {
+                            this.testResult.push({
+                                name: _,
+                                count: chance[_],
+                                chance: (chance[_] / this.testTimes * 100).toFixed(2) + "%",
+                                chanceBySetting: this.tableData[index].p + "%",
+                                price: this.tableData[index].price,
+                                difference: (chance[_] / this.testTimes * 100 - this.tableData[index].p).toFixed(2) + "%"
+                            });
+                        });
+                        
+                        // sort by difference for better analysis
+                        this.testResult.sort((a, b) => 
+                            Math.abs(parseFloat(b.difference)) - Math.abs(parseFloat(a.difference))
+                        );
+                    }
+                };
+                
+                // start the test
+                this.$nextTick(() => {
+                    requestAnimationFrame(testLoop);
                 });
             },
             // add new item to the list
@@ -319,6 +341,17 @@
                     this.showGetItemMessage();
                 });
             },
+            clearStorage() {
+                this.$confirm('確定要清除所有保存的設定嗎？', '警告', {
+                    confirmButtonText: '確定',
+                    cancelButtonText: '取消',
+                    type: 'warning'
+                }).then(() => {
+                    localStorage.removeItem('petLotteryData');
+                    this.tableData = [];
+                    this.$message.success('設定已清除');
+                });
+            },
             getNextAvaiableItemIndex(currentIndex) {
                 let index = currentIndex - 1;
                 if (index < 0) index = this.tableData.length - 1;
@@ -331,16 +364,33 @@
             },
             // when the value changed, we must make sure the sum of items chance is "1"
             countTotalChance(value, index) {
-                var total = 0;
-                this.tableData.forEach((_) => {
-                    total += _.p;
-                });
-                var number_to_plus = (number_to_plus = 1 - total);
-                number_to_plus = parseFloat(number_to_plus.toFixed(4));
+                // 計算當前總概率
+                var total = this.tableData.reduce((sum, item) => sum + item.p, 0);
+                
+                // 如果總概率超過100%，重置為初始值
+                if (total > 100) {
+                    this.$message.error('總概率不能超過100%！');
+                    this.tableData[index].p = value;
+                    return;
+                }
+                
+                // 計算需要調整的差值
+                var adjustment = 100 - total;
+                adjustment = parseFloat(adjustment.toFixed(4));
 
+                // 找到下一個可調整的項目
                 let next_index = this.getNextAvaiableItemIndex(index);
+                
+                // 確保調整後的概率不小於0
+                if (this.tableData[next_index].p + adjustment < 0) {
+                    this.$message.error('調整後概率不能為負數！');
+                    this.tableData[index].p = value;
+                    return;
+                }
+                
+                // 應用調整
                 this.tableData[next_index].p = Number(
-                    (this.tableData[next_index].p + number_to_plus).toFixed(4)
+                    (this.tableData[next_index].p + adjustment).toFixed(4)
                 );
             },
             formatNumber(num, precision, separator) {
@@ -375,7 +425,20 @@
 
         },
         mounted() {
-
+            // 從localStorage載入數據
+            const savedData = localStorage.getItem('petLotteryData');
+            if (savedData) {
+                this.tableData = JSON.parse(savedData);
+            }
+        },
+        watch: {
+            tableData: {
+                handler(newVal) {
+                    // 當tableData變化時自動保存到localStorage
+                    localStorage.setItem('petLotteryData', JSON.stringify(newVal));
+                },
+                deep: true
+            }
         }
 
     })

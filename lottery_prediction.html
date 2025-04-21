@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中獎號碼預測</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        label {
+            margin-right: 10px;
+            display: block;
+            margin-bottom: 5px;
+        }
+        input[type="text"] {
+            margin-bottom: 10px;
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+        textarea {
+            margin-bottom: 10px;
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            height: 150px;
+            resize: vertical;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .button-group {
+            margin-bottom: 15px;
+        }
+        .output {
+            margin-top: 20px;
+            font-size: 18px;
+            padding: 15px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+        }
+        .stats {
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        .stats-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        .stats-table th, .stats-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+        }
+        .stats-table th {
+            background-color: #f2f2f2;
+        }
+        .tabs {
+            display: flex;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #ddd;
+        }
+        .tab {
+            padding: 10px 15px;
+            cursor: pointer;
+            background-color: #f1f1f1;
+            margin-right: 5px;
+            border-radius: 4px 4px 0 0;
+        }
+        .tab.active {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .record-count {
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        .chart-container {
+            margin-top: 20px;
+            height: 300px;
+        }
+    </style>
+</head>
+<body>
+    <h1>中獎號碼預測</h1>
+    <p>請輸入歷史中獎記錄，並預測下一次最有可能中獎的號碼。目前已支援超過100筆記錄。</p>
+
+    <div class="tabs">
+        <div class="tab active" data-tab="input">輸入記錄</div>
+        <div class="tab" data-tab="history">歷史記錄</div>
+        <div class="tab" data-tab="analysis">數據分析</div>
+    </div>
+
+    <div class="tab-content active" id="input-tab">
+        <div>
+            <label for="input-method">選擇輸入方式:</label>
+            <select id="input-method" onchange="toggleInputMethod()">
+                <option value="single">單行輸入</option>
+                <option value="batch">批量輸入</option>
+            </select>
+        </div>
+        
+        <div id="single-input">
+            <label for="records">請輸入歷史中獎記錄 (用逗號分隔):</label>
+            <input type="text" id="records" placeholder="1,2,3,...">
+        </div>
+        
+        <div id="batch-input" style="display: none;">
+            <label for="batch-records">請輸入大量歷史中獎記錄 (每行一個號碼或用逗號分隔):</label>
+            <textarea id="batch-records" placeholder="1,2,3,...
+4,5,6,..."></textarea>
+        </div>
+        
+        <div class="button-group">
+            <button onclick="predictNextNumber()">預測下一把號碼</button>
+            <button onclick="saveRecords()">保存記錄</button>
+            <button onclick="clearInput()">清空輸入</button>
+        </div>
+        
+        <div class="output" id="output"></div>
+    </div>
+
+    <div class="tab-content" id="history-tab">
+        <h3>已保存的歷史記錄 <span id="record-count" class="record-count">(0)</span></h3>
+        <div id="saved-records"></div>
+        <div class="button-group">
+            <button onclick="clearHistory()">清空歷史記錄</button>
+            <button onclick="exportHistory()">導出記錄</button>
+            <button onclick="importHistory()">導入記錄</button>
+        </div>
+    </div>
+
+    <div class="tab-content" id="analysis-tab">
+        <div id="stats"></div>
+        <div class="chart-container" id="chart-container"></div>
+    </div>
+
+    <script>
+        const probabilities = [19.4, 19.4, 19.4, 19.4, 9.7, 6.5, 3.9, 2.2]; // 各號碼的中獎概率
+        let savedRecords = [];
+        
+        // 初始化頁面
+        document.addEventListener('DOMContentLoaded', function() {
+            // 設置標籤頁切換
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', function() {
+                    // 移除所有標籤和內容的活動狀態
+                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                    
+                    // 添加當前標籤和內容的活動狀態
+                    this.classList.add('active');
+                    const tabId = this.getAttribute('data-tab');
+                    document.getElementById(`${tabId}-tab`).classList.add('active');
+                    
+                    // 如果切換到歷史記錄標籤，則加載歷史記錄
+                    if (tabId === 'history') {
+                        loadSavedRecords();
+                    } else if (tabId === 'analysis') {
+                        analyzeAllRecords();
+                    }
+                });
+            });
+            
+            // 從本地存儲加載記錄
+            loadFromLocalStorage();
+        });
+        
+        // 切換輸入方式
+        function toggleInputMethod() {
+            const method = document.getElementById('input-method').value;
+            if (method === 'single') {
+                document.getElementById('single-input').style.display = 'block';
+                document.getElementById('batch-input').style.display = 'none';
+            } else {
+                document.getElementById('single-input').style.display = 'none';
+                document.getElementById('batch-input').style.display = 'block';
+            }
+        }
+        
+        // 從本地存儲加載記錄
+        function loadFromLocalStorage() {
+            const storedRecords = localStorage.getItem('lotteryRecords');
+            if (storedRecords) {
+                savedRecords = JSON.parse(storedRecords);
+                updateRecordCount();
+            }
+        }
+        
+        // 保存記錄到本地存儲
+        function saveToLocalStorage() {
+            localStorage.setItem('lotteryRecords', JSON.stringify(savedRecords));
+            updateRecordCount();
+        }
+        
+        // 更新記錄計數
+        function updateRecordCount() {
+            document.getElementById('record-count').innerText = `(${savedRecords.length})`;
+        }
+        
+        // 獲取輸入的記錄
+        function getInputRecords() {
+            const method = document.getElementById('input-method').value;
+            let inputText = '';
+            
+            if (method === 'single') {
+                inputText = document.getElementById('records').value.trim();
+                if (!inputText) return [];
+                return inputText.split(',').map(Number);
+            } else {
+                inputText = document.getElementById('batch-records').value.trim();
+                if (!inputText) return [];
+                
+                // 處理多行輸入，可以是每行一個號碼或每行多個逗號分隔的號碼
+                const lines = inputText.split(/\n|\r\n/);
+                let allRecords = [];
+                
+                lines.forEach(line => {
+                    line = line.trim();
+                    if (line) {
+                        // 檢查是否包含逗號
+                        if (line.includes(',')) {
+                            allRecords = allRecords.concat(line.split(',').map(Number));
+                        } else {
+                            allRecords.push(Number(line));
+                        }
+                    }
+                });
+                
+                return allRecords;
+            }
+        }
+        
+        // 預測下一個號碼
+        function predictNextNumber() {
+            const records = getInputRecords();
+            if (records.length === 0) {
+                document.getElementById('output').innerText = "請輸入有效的中獎記錄";
+                return;
+            }
+            
+            // 計算每個號碼的中獎次數
+            let frequency = [0, 0, 0, 0, 0, 0, 0, 0];
+            let validRecords = 0;
+            
+            records.forEach(record => {
+                if (record >= 1 && record <= 8) {
+                    frequency[record - 1]++;
+                    validRecords++;
+                }
+            });
+            
+            if (validRecords === 0) {
+                document.getElementById('output').innerText = "沒有有效的中獎記錄，請確保輸入的號碼在1-8之間";
+                return;
+            }
+            
+            // 計算每個號碼的預期值（改進的算法）
+            let predictedScores = [];
+            for (let i = 0; i < probabilities.length; i++) {
+                // 調整權重比例，增加理論機率的影響
+                const historyWeight = 0.4; // 降低歷史數據權重
+                const theoryWeight = 0.6;  // 提高理論機率權重
+                
+                const historyFreq = (frequency[i] / validRecords) * 100;
+                
+                // 計算與理論機率的偏差
+                const deviation = historyFreq - probabilities[i];
+                
+                // 應用回歸均值原理：如果某號碼出現頻率遠高於理論值，則可能回歸
+                // 偏差越大，回歸效應越強
+                const regressionFactor = Math.min(Math.abs(deviation) * 0.1, 0.5);
+                const adjustedHistoryScore = deviation > 0 
+                    ? historyFreq - (deviation * regressionFactor) // 高於理論值，向下調整
+                    : historyFreq + (Math.abs(deviation) * regressionFactor); // 低於理論值，向上調整
+                
+                // 最終分數結合調整後的歷史分數和理論機率
+                const score = (adjustedHistoryScore * historyWeight) + (probabilities[i] * theoryWeight);
+                predictedScores.push({ number: i + 1, score: score });
+            }
+            
+            // 根據預期值選出最大的一個號碼
+            predictedScores.sort((a, b) => b.score - a.score);
+            const bestNumber = predictedScores[0].number;
+            
+            // 顯示預測結果和前三名
+            let resultText = `預測下一把最有可能中獎的號碼是：${bestNumber}`;
+            resultText += `\n\n前三名預測：`;
+            for (let i = 0; i < Math.min(3, predictedScores.length); i++) {
+                resultText += `\n${i+1}. ${predictedScores[i].number}號 (分數: ${predictedScores[i].score.toFixed(2)})`;
+            }
+            
+            // 添加近100筆記錄的分析
+            if (validRecords >= 20) {
+                // 取最近的100筆記錄進行分析
+                const recentCount = Math.min(100, validRecords);
+                const recentRecords = records.slice(-recentCount);
+                
+                // 計算最近100筆記錄的頻率
+                let recentFrequency = [0, 0, 0, 0, 0, 0, 0, 0];
+                let recentValidRecords = 0;
+                
+                recentRecords.forEach(record => {
+                    if (record >= 1 && record <= 8) {
+                        recentFrequency[record - 1]++;
+                        recentValidRecords++;
+                    }
+                });
+                
+                if (recentValidRecords > 0) {
+                    // 使用近期數據預測
+                    let recentPredictedScores = [];
+                    for (let i = 0; i < probabilities.length; i++) {
+                        const historyWeight = 0.4;
+                        const theoryWeight = 0.6;
+                        
+                        const historyFreq = (recentFrequency[i] / recentValidRecords) * 100;
+                        const deviation = historyFreq - probabilities[i];
+                        
+                        const regressionFactor = Math.min(Math.abs(deviation) * 0.1, 0.5);
+                        const adjustedHistoryScore = deviation > 0 
+                            ? historyFreq - (deviation * regressionFactor)
+                            : historyFreq + (Math.abs(deviation) * regressionFactor);
+                        
+                        const score = (adjustedHistoryScore * historyWeight) + (probabilities[i] * theoryWeight);
+                        recentPredictedScores.push({ number: i + 1, score: score });
+                    }
+                    
+                    recentPredictedScores.sort((a, b) => b.score - a.score);
+                    
+                    resultText += `\n\n近${recentValidRecords}筆記錄分析：`;
+                    resultText += `\n預測下一把最有可能中獎的號碼是：${recentPredictedScores[0].number}`;
+                    resultText += `\n\n前三名預測：`;
+                    for (let i = 0; i < Math.min(3, recentPredictedScores.length); i++) {
+                        resultText += `\n${i+1}. ${recentPredictedScores[i].number}號 (分數: ${recentPredictedScores[i].score.toFixed(2)})`;
+                    }
+                    
+                    // 添加近期號碼分布
+                    resultText += `\n\n近期號碼分布：`;
+                    for (let i = 0; i < recentFrequency.length; i++) {
+                        const percentage = (recentFrequency[i] / recentValidRecords * 100).toFixed(2);
+                        resultText += `\n${i+1}號: ${recentFrequency[i]}次 (${percentage}%)`;
+                    }
+                    
+                    // 添加與理論機率的差異
+                    resultText += `\n\n與理論機率差異：`;
+                    for (let i = 0; i < recentFrequency.length; i++) {
+                        const percentage = (recentFrequency[i] / recentValidRecords * 100).toFixed(2);
+                        const diff = (percentage - probabilities[i]).toFixed(2);
+                        resultText += `\n${i+1}號: ${diff > 0 ? '+' : ''}${diff}%`;
+                    }
+                }
+            }
+            
+            document.getElementById('output').innerHTML = resultText.replace(/\n/g, '<br>');
+        }
+        
+        // 保存記錄
+        function saveRecords() {
+            const newRecords = getInputRecords().filter(record => record >= 1 && record <= 8);
+            if (newRecords.length === 0) {
+                alert("沒有有效的中獎記錄可保存，請確保輸入的號碼在1-8之間");
+                return;
+            }
+            
+            // 添加到已保存的記錄中
+            savedRecords = savedRecords.concat(newRecords);
+            saveToLocalStorage();
+            
+            // 清空輸入
+            clearInput();
+            
+            // 顯示保存成功消息
+            document.getElementById('output').innerHTML = `成功保存 ${newRecords.length} 筆記錄！總共有 ${savedRecords.length} 筆記錄。`;
+            
+            // 切換到歷史記錄標籤
+            document.querySelector('.tab[data-tab="history"]').click();
+        }
+        
+        // 清空輸入
+        function clearInput() {
+            document.getElementById('records').value = '';
+            document.getElementById('batch-records').value = '';
+            document.getElementById('output').innerHTML = '';
+        }
+        
+        // 加載已保存的記錄
+        function loadSavedRecords() {
+            const recordsDiv = document.getElementById('saved-records');
+            
+            if (savedRecords.length === 0) {
+                recordsDiv.innerHTML = '<p>目前沒有保存的記錄</p>';
+                return;
+            }
+            
+            // 計算每個號碼的出現次數
+            let frequency = [0, 0, 0, 0, 0, 0, 0, 0];
+            savedRecords.forEach(record => {
+                if (record >= 1 && record <= 8) {
+                    frequency[record - 1]++;
+                }
+            });
+            
+            // 顯示記錄摘要
+            let html = `<p>共有 ${savedRecords.length} 筆記錄</p>`;
+            html += '<div style="margin-bottom: 15px;">';
+            for (let i = 0; i < frequency.length; i++) {
+                html += `<span style="margin-right: 15px;">${i+1}號: ${frequency[i]}次</span>`;
+            }
+            html += '</div>';
+            
+            // 顯示最近的記錄
+            const recentCount = Math.min(100, savedRecords.length);
+            html += `<h4>最近 ${recentCount} 筆記錄:</h4>`;
+            html += '<div style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px;">';
+            
+            const recentRecords = savedRecords.slice(-recentCount);
+            for (let i = 0; i < recentRecords.length; i++) {
+                html += `<span style="display: inline-block; width: 30px; margin: 2px;">${recentRecords[i]}</span>`;
+                if ((i + 1) % 20 === 0) html += '<br>';
+            }
+            
+            html += '</div>';
+            recordsDiv.innerHTML = html;
+        }
+        
+        // 清空歷史記錄
+        function clearHistory() {
+            if (confirm("確定要清空所有歷史記錄嗎？此操作無法撤銷。")) {
+                savedRecords = [];
+                saveToLocalStorage();
+                loadSavedRecords();
+            }
+        }
+        
+        // 導出記錄
+        function exportHistory() {
+            if (savedRecords.length === 0) {
+                alert("沒有記錄可導出");
+                return;
+            }
+            
+            const blob = new Blob([savedRecords.join(',')], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'lottery_records.txt';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+        
+        // 導入記錄
+        function importHistory() {
+            const input = prompt("請輸入要導入的記錄 (用逗號分隔):");
+            if (!input) return;
+            
+            const newRecords = input.split(',').map(Number).filter(num => num >= 1 && num <= 8);
+            if (newRecords.length === 0) {
+                alert("沒有有效的記錄可導入");
+                return;
+            }
+            
+            if (confirm(`確定要導入 ${newRecords.length} 筆記錄嗎？`)) {
+                savedRecords = savedRecords.concat(newRecords);
+                saveToLocalStorage();
+                loadSavedRecords();
+                alert(`成功導入 ${newRecords.length} 筆記錄！`);
+            }
+        }
+        
+        // 分析所有記錄
+        function analyzeAllRecords() {
+            let recordsToAnalyze = [];
+            
+            // 如果有保存的記錄，則使用保存的記錄
+            if (savedRecords.length > 0) {
+                recordsToAnalyze = savedRecords;
+            } else {
+                // 否則使用當前輸入的記錄
+                recordsToAnalyze = getInputRecords();
+            }
+            
+            // 過濾有效記錄
+            recordsToAnalyze = recordsToAnalyze.filter(record => record >= 1 && record <= 8);
+            
+            if (recordsToAnalyze.length === 0) {
+                document.getElementById('stats').innerHTML = "<p>沒有有效的記錄可分析</p>";
+                return;
+            }
+            
+            // 計算每個號碼的中獎次數
+            let frequency = [0, 0, 0, 0, 0, 0, 0, 0];
+            recordsToAnalyze.forEach(record => {
+                frequency[record - 1]++;
+            });
+            
+            // 顯示統計資訊
+            showStatistics(frequency, recordsToAnalyze.length);
+            
+            // 預測下一個號碼
+            let predictedScores = [];
+            for (let i = 0; i < probabilities.length; i++) {
+                // 調整權重比例，增加理論機率的影響
+                const historyWeight = 0.4; // 降低歷史數據權重
+                const theoryWeight = 0.6;  // 提高理論機率權重
+                
+                const historyFreq = (frequency[i] / recordsToAnalyze.length) * 100;
+                
+                // 計算與理論機率的偏差
+                const deviation = historyFreq - probabilities[i];
+                
+                // 應用回歸均值原理
+                const regressionFactor = Math.min(Math.abs(deviation) * 0.1, 0.5);
+                const adjustedHistoryScore = deviation > 0 
+                    ? historyFreq - (deviation * regressionFactor)
+                    : historyFreq + (Math.abs(deviation) * regressionFactor);
+                
+                // 最終分數結合調整後的歷史分數和理論機率
+                const score = (adjustedHistoryScore * historyWeight) + (probabilities[i] * theoryWeight);
+                predictedScores.push({ number: i + 1, score: score });
+            }
+            
+            // 根據預期值排序
+            predictedScores.sort((a, b) => b.score - a.score);
+            
+            // 添加預測結果
+            let predictionHTML = '<div style="margin-top: 20px; padding: 15px; background-color: #f5f5f5; border-radius: 4px;">';
+            predictionHTML += '<h3>預測結果</h3>';
+            predictionHTML += `<p>基於 ${recordsToAnalyze.length} 筆記錄的分析，預測下一把最有可能中獎的號碼是：</p>`;
+            predictionHTML += `<p style="font-size: 24px; font-weight: bold; color: #4CAF50;">${predictedScores[0].number}號</p>`;
+            predictionHTML += '<p>前三名預測：</p><ol>';
+            
+            for (let i = 0; i < Math.min(3, predictedScores.length); i++) {
+                predictionHTML += `<li>${predictedScores[i].number}號 (分數: ${predictedScores[i].score.toFixed(2)})</li>`;
+            }
+            
+            predictionHTML += '</ol></div>';
+            
+            // 添加到統計信息後面
+            document.getElementById('stats').innerHTML += predictionHTML;
+        }
+        
+        // 顯示統計資訊
+        function showStatistics(frequency, totalRecords) {
+            const statsDiv = document.getElementById('stats');
+            
+            let statsHTML = `<h3>統計資訊 (共 ${totalRecords} 筆有效記錄)</h3>`;
+            
+            // 添加摘要信息
+            statsHTML += '<div style="margin-bottom: 15px;">';
+            for (let i = 0; i < frequency.length; i++) {
+                const percentage = totalRecords > 0 ? (frequency[i] / totalRecords * 100).toFixed(2) : '0.00';
+                statsHTML += `<span style="margin-right: 15px;">${i+1}號: ${frequency[i]}次 (${percentage}%)</span>`;
+            }
+            statsHTML += '</div>';
+            
+            // 添加詳細表格
+            statsHTML += '<table class="stats-table"><tr><th>號碼</th><th>出現次數</th><th>出現頻率</th><th>理論機率</th><th>差異</th></tr>';
+            
+            for (let i = 0; i < frequency.length; i++) {
+                const freq = frequency[i];
+                const percentage = totalRecords > 0 ? (freq / totalRecords * 100).toFixed(2) : '0.00';
+                const diff = totalRecords > 0 ? (percentage - probabilities[i]).toFixed(2) : '0.00';
+                const diffColor = diff > 0 ? 'green' : (diff < 0 ? 'red' : 'black');
+                
+                statsHTML += `<tr>
+                    <td>${i + 1}</td>
+                    <td>${freq}</td>
+                    <td>${percentage}%</td>
+                    <td>${probabilities[i]}%</td>
+                    <td style="color: ${diffColor}">${diff > 0 ? '+' : ''}${diff}%</td>
+                </tr>`;
+            }
+            
+            statsHTML += '</table>';
+            
+            // 添加趨勢分析（如果記錄足夠多）
+            if (totalRecords >= 20) {
+                statsHTML += '<h3 style="margin-top: 20px;">趨勢分析</h3>';
+                statsHTML += '<p>根據歷史數據分析，以下號碼的出現頻率與理論機率有顯著差異：</p>';
+                
+                let significantDiffs = [];
+                for (let i = 0; i < frequency.length; i++) {
+                    const percentage = totalRecords > 0 ? (frequency[i] / totalRecords * 100) : 0;
+                    const diff = percentage - probabilities[i];
+                    
+                    if (Math.abs(diff) > 5) { // 差異超過5%視為顯著
+                        significantDiffs.push({
+                            number: i + 1,
+                            diff: diff,
+                            trend: diff > 0 ? '高於預期' : '低於預期'
+                        });
+                    }
+                }
+                
+                if (significantDiffs.length > 0) {
+                    statsHTML += '<ul>';
+                    significantDiffs.forEach(item => {
+                        statsHTML += `<li>${item.number}號: ${item.trend} (差異 ${item.diff > 0 ? '+' : ''}${item.diff.toFixed(2)}%)</li>`;
+                    });
+                    statsHTML += '</ul>';
+                } else {
+                    statsHTML += '<p>目前沒有號碼的出現頻率與理論機率有顯著差異。</p>';
+                }
+            }
+            
+            statsDiv.innerHTML = statsHTML;
+        }
+    </script>
+</body>
+</html>
